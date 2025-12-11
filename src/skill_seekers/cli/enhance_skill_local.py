@@ -265,8 +265,68 @@ rm {prompt_file}
                 print(f"\nManually run: {script_file}")
                 return False
         elif sys.platform == 'win32':
-            # Windows: Create a batch script and launch in new cmd window
-            batch_script = f'''@echo off
+            # Windows: Use PowerShell 7 (pwsh) if available, else Windows PowerShell
+            # Also change to skill directory for safety (don't run in user's home)
+            skill_dir_path = str(self.skill_dir.absolute())
+
+            # Check for user preference via environment variable
+            preferred_shell = os.environ.get('SKILL_SEEKER_TERMINAL', '').strip().lower()
+
+            # Detect available shell
+            if preferred_shell in ('pwsh', 'powershell7', 'powershell 7'):
+                shell_cmd = 'pwsh'
+                shell_name = 'PowerShell 7'
+            elif preferred_shell in ('powershell', 'windows powershell'):
+                shell_cmd = 'powershell'
+                shell_name = 'Windows PowerShell'
+            elif preferred_shell in ('cmd', 'cmd.exe', 'command prompt'):
+                shell_cmd = 'cmd'
+                shell_name = 'Command Prompt'
+            else:
+                # Auto-detect: prefer pwsh > powershell > cmd
+                try:
+                    subprocess.run(['pwsh', '-Version'], capture_output=True, check=True)
+                    shell_cmd = 'pwsh'
+                    shell_name = 'PowerShell 7 (auto-detected)'
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    shell_cmd = 'powershell'
+                    shell_name = 'Windows PowerShell (fallback)'
+
+            print(f"   Using: {shell_name}")
+            print(f"   Working directory: {skill_dir_path}")
+
+            if shell_cmd in ('pwsh', 'powershell'):
+                # PowerShell script - runs in skill directory for safety
+                ps_script = f'''
+Set-Location "{skill_dir_path}"
+claude "{prompt_file}"
+Write-Host ""
+Write-Host "Enhancement complete!" -ForegroundColor Green
+Write-Host "Press any key to close..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Remove-Item "{prompt_file}" -ErrorAction SilentlyContinue
+'''
+                # Save PowerShell script
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.ps1', delete=False, encoding='utf-8') as f:
+                    script_file = f.name
+                    f.write(ps_script)
+
+                try:
+                    # Launch PowerShell in new window
+                    subprocess.Popen([
+                        shell_cmd, '-NoExit', '-ExecutionPolicy', 'Bypass',
+                        '-File', script_file
+                    ], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                except Exception as e:
+                    print(f"   Warning: Error launching {shell_name}: {e}")
+                    print(f"\nManually run in the skill directory:")
+                    print(f'  cd "{skill_dir_path}"')
+                    print(f'  claude "{prompt_file}"')
+                    return False
+            else:
+                # Fallback to cmd.exe
+                batch_script = f'''@echo off
+cd /d "{skill_dir_path}"
 claude "{prompt_file}"
 echo.
 echo Enhancement complete!
@@ -274,19 +334,18 @@ echo Press any key to close...
 pause >nul
 del "{prompt_file}"
 '''
-            # Save batch script
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.bat', delete=False, encoding='utf-8') as f:
-                batch_file = f.name
-                f.write(batch_script)
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.bat', delete=False, encoding='utf-8') as f:
+                    batch_file = f.name
+                    f.write(batch_script)
 
-            print("   Launching new Command Prompt window...")
-            try:
-                subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/k', batch_file], shell=True)
-            except Exception as e:
-                print(f"   Warning: Error launching terminal: {e}")
-                print(f"\nManually run this command in a new terminal:")
-                print(f'  claude "{prompt_file}"')
-                return False
+                try:
+                    subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/k', batch_file], shell=True)
+                except Exception as e:
+                    print(f"   Warning: Error launching Command Prompt: {e}")
+                    print(f"\nManually run in the skill directory:")
+                    print(f'  cd "{skill_dir_path}"')
+                    print(f'  claude "{prompt_file}"')
+                    return False
         else:
             # Linux and other platforms
             print("   Note: Auto-launch works best on macOS and Windows")
