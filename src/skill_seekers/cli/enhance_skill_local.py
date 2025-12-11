@@ -236,14 +236,14 @@ rm {prompt_file}
 '''
 
         # Save shell script
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False, encoding='utf-8') as f:
             script_file = f.name
             f.write(shell_script)
 
-        os.chmod(script_file, 0o755)
-
-        # Launch in new terminal (macOS specific)
+        # Launch in new terminal (platform-specific)
         if sys.platform == 'darwin':
+            os.chmod(script_file, 0o755)
+
             # Detect which terminal app to use
             terminal_app, detection_method = detect_terminal_app()
 
@@ -253,19 +253,43 @@ rm {prompt_file}
             elif detection_method == 'TERM_PROGRAM':
                 print(f"   Using terminal: {terminal_app} (inherited from current terminal)")
             elif detection_method.startswith('unknown TERM_PROGRAM'):
-                print(f"⚠️  {detection_method}")
-                print(f"   → Using Terminal.app as fallback")
+                print(f"   Warning: {detection_method}")
+                print(f"   -> Using Terminal.app as fallback")
             else:
                 print(f"   Using terminal: {terminal_app} (default)")
 
             try:
                 subprocess.Popen(['open', '-a', terminal_app, script_file])
             except Exception as e:
-                print(f"⚠️  Error launching {terminal_app}: {e}")
+                print(f"   Warning: Error launching {terminal_app}: {e}")
                 print(f"\nManually run: {script_file}")
                 return False
+        elif sys.platform == 'win32':
+            # Windows: Create a batch script and launch in new cmd window
+            batch_script = f'''@echo off
+claude "{prompt_file}"
+echo.
+echo Enhancement complete!
+echo Press any key to close...
+pause >nul
+del "{prompt_file}"
+'''
+            # Save batch script
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.bat', delete=False, encoding='utf-8') as f:
+                batch_file = f.name
+                f.write(batch_script)
+
+            print("   Launching new Command Prompt window...")
+            try:
+                subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/k', batch_file], shell=True)
+            except Exception as e:
+                print(f"   Warning: Error launching terminal: {e}")
+                print(f"\nManually run this command in a new terminal:")
+                print(f'  claude "{prompt_file}"')
+                return False
         else:
-            print("⚠️  Auto-launch only works on macOS")
+            # Linux and other platforms
+            print("   Note: Auto-launch works best on macOS and Windows")
             print(f"\nManually run this command in a new terminal:")
             print(f"  claude '{prompt_file}'")
             print(f"\nThen delete the prompt file:")
